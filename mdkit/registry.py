@@ -13,13 +13,13 @@ from __future__ import annotations
 _MODULES = {
     "to-md": ("mdkit.modules.to_md", "任意文件 → Markdown（逆向）"),
     "docx": ("mdkit.modules.md_to_docx", "Markdown → 企业模板 .docx"),
-    "sanitize": ("mdkit.modules.docx_sanitize", "Word 模板脱敏维护"),
+    "sanitize": ("mdkit.modules.docx_sanitize", "Word 模板脱敏（模板维护用）"),
     "html": ("mdkit.modules.md_to_html", "Markdown → 独立 HTML（Node 渲染）"),
-    "pptx": ("mdkit.modules.md_to_pptx", "Markdown → PPT（Marp 优先）"),
-    "pdf": ("mdkit.modules.md_to_pdf", "Markdown → PDF（Eisvogel/typst）"),
+    "pptx": ("mdkit.modules.md_to_pptx", "Markdown → PPT（md2pptx 优先，--backend marp 切 Marp）"),
+    "pdf": ("mdkit.modules.md_to_pdf", "Markdown → PDF（typst 优先，--engine xelatex 用 Eisvogel）"),
     "multi": ("mdkit.modules.md_to_multi", "一次导出多种格式"),
     "pipe": ("mdkit.modules.pipeline", "链式组合转换"),
-    "doctor": ("mdkit.modules.doctor", "环境探测"),
+    "doctor": ("mdkit.modules.doctor", "环境探测（诊断用）"),
 }
 
 

@@ -22,7 +22,6 @@
     "inline_css": true
   },
   "pdf": {
-    "template": "pandoc/eisvogel.tex",
     "engine": "auto"
   },
   "pptx": {

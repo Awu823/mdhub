@@ -10,6 +10,9 @@ REM   mdhub.bat pipe input.docx --to md,docx
 REM
 REM Prefers the project virtualenv (.venv); falls back to system python.
 setlocal
+REM Remember the caller's cwd BEFORE cd'ing to the project root, so that a
+REM relative input path resolves against the directory the user ran from.
+set "MDHUB_CALLER_CWD=%CD%"
 cd /d "%~dp0.."
 set "ARGS=%*"
 

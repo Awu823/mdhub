@@ -1,6 +1,7 @@
 # mdhub — 统一 Markdown 转换工具（mdkit）
 
-一个Markdown 转换 CLI，内置多种转换后端，不依赖任何外部项目。
+一个统一的 Markdown/文档转换 CLI，内置多种转换后端（md2pptx / typst / Marp / Node 等）。
+个别格式依赖可选的外部**系统**工具（pandoc / typst / 浏览器），见「系统依赖」。
 
 ## 安装
 
@@ -17,6 +18,22 @@ python -m venv .venv
 cd node && npm install && cd ..
 ```
 
+## 系统依赖（可选，按需安装）
+
+`build.bat` 只装 Python + Node 依赖；**系统级外部工具需单独安装**。运行 `bin\mdhub.bat doctor`
+会逐项探测并提示缺失——缺什么装什么即可。
+
+| 子命令 | 外部工具 | 缺失时 | 安装 |
+|---|---|---|---|
+| `docx` | pandoc | 转换失败并提示 | `winget install pandoc` |
+| `pdf` | pandoc + typst（或 MiKTeX 提供 xelatex） | 失败并提示 | `winget install pandoc` + `winget install Typst.Typst` |
+| `html` | node | 自动降级基础渲染 | `winget install OpenJS.NodeJS` |
+| `pptx` | python-pptx（内置 md2pptx）/ node + 浏览器 | auto 自动切换后端 | `pip install python-pptx`；Marp 需 Node + 浏览器 |
+| `to-md` | markitdown（pip，`build.bat` 已装） | 子命令报缺依赖 | `pip install markitdown[all]` |
+
+> 说明：`pptx` 默认走**内置 md2pptx**（python-pptx，无需浏览器），`--backend marp` 才需要 Node + 浏览器；
+> `pdf` 默认走 **typst**（无需 LaTeX），`--engine xelatex` 才需要 MiKTeX + Eisvogel 模板。
+
 ## 使用
 
 ```bat
@@ -24,8 +41,8 @@ bin\mdhub.bat doctor                       环境探测
 bin\mdhub.bat to-md  in.docx              任意文件 → Markdown（逆向）
 bin\mdhub.bat docx  in.md                 Markdown → 企业模板 docx
 bin\mdhub.bat html  in.md -t midnight     Markdown → 独立 HTML（Node）
-bin\mdhub.bat pptx  in.md                 Markdown → PPT（Marp）
-bin\mdhub.bat pdf   in.md                 Markdown → PDF（Eisvogel/xelatex）
+bin\mdhub.bat pptx  in.md                 Markdown → PPT（md2pptx；--backend marp 切 Marp）
+bin\mdhub.bat pdf   in.md                 Markdown → PDF（typst；--engine xelatex 用 Eisvogel）
 bin\mdhub.bat multi in.md --to docx,html,pdf
 bin\mdhub.bat pipe  in.docx --to md,docx  链式：docx→md→docx
 bin\mdhub.bat sanitize templates\template.docx   模板脱敏
@@ -55,7 +72,7 @@ python -m mdkit pdf "data\input\my.md"
 python -m mdkit to-md "in.docx" -o data\output\out.md
 ```
 
-跨平台（Linux/macOS）：`python -m mdkit <子命令> ...`
+跨平台（Linux/macOS）：`python -m mdkit <子命令> ...`（无构建脚本，需自行安装 Python/Node 依赖）
 
 > ⚠️ **必须走 `python -m mdkit` 入口**。`mdkit` 包通过 `__main__.py`→`cli.py` 做路由和参数解析，
 > 各子命令模块（如 `mdkit/modules/md_to_pdf.py`）只提供 `add_subparser()`/`run()`，

@@ -25,7 +25,8 @@ def add_subparser(sp):
     sp.add_argument("md", nargs="?", help="输入 .md")
     sp.add_argument("-o", "--output", help="输出 .pdf 路径")
     sp.add_argument("--engine", choices=("auto", "xelatex", "pdflatex", "typst"), default="auto")
-    sp.add_argument("--template", help="LaTeX 模板（默认 assets/pandoc/eisvogel.tex）")
+    sp.add_argument("--template", help="可选 LaTeX 模板（xelatex 引擎时；缺省用 pandoc 默认模板，"
+                                       "可放 assets/pandoc/eisvogel.tex）")
     sp.add_argument("--keep-md", action="store_true", help="保留预处理后的中间 .md")
 
 

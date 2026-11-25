@@ -64,22 +64,24 @@ EXTRA_STYLES = (
 
 def add_subparser(sp):
     sp.add_argument("md", nargs="?", help="输入 .md 文件")
-    sp.add_argument("-t", "--template", help="企业模板 .docx")
-    sp.add_argument("-o", "--output", help="输出 .docx 路径")
-    sp.add_argument("--body-start", type=int, help="正文起始行号（0 基）")
-    sp.add_argument("--doc-name", help="封面 Document Name")
-    sp.add_argument("--doc-assoc", help="封面 Associated Documents")
-    sp.add_argument("--doc-type", help="封面 Document Type 值")
-    sp.add_argument("--doc-loc", help="封面 Document Location 值")
-    sp.add_argument("--history", help="封面 History 值")
-    sp.add_argument("--cover-name", help="Document Name 单元格 T,R,C")
-    sp.add_argument("--cover-assoc", help="Associated Docs 单元格 T,R,C")
-    sp.add_argument("--cover-type", help="Document Type 单元格 T,R,C")
-    sp.add_argument("--cover-loc", help="Document Location 单元格 T,R,C")
-    sp.add_argument("--cover-hist", help="History 单元格 T,R,C")
-    sp.add_argument("--config", help="JSON 配置文件（可覆盖 mkit.json）")
-    sp.add_argument("--keep-temp", action="store_true", help="保留中间产物")
-    sp.add_argument("--workdir", help="中间产物目录（默认 output/_tmp）")
+    basic = sp.add_argument_group("基础")
+    basic.add_argument("-t", "--template", help="企业模板 .docx")
+    basic.add_argument("-o", "--output", help="输出 .docx 路径")
+    basic.add_argument("--config", help="JSON 配置文件（可覆盖 mkit.json）")
+    basic.add_argument("--keep-temp", action="store_true", help="保留中间产物")
+    basic.add_argument("--workdir", help="中间产物目录（默认 output/_tmp）")
+    cover = sp.add_argument_group("封面/正文定制（多数有自动检测，可选）")
+    cover.add_argument("--body-start", type=int, help="正文起始行号（0 基）")
+    cover.add_argument("--doc-name", help="封面 Document Name")
+    cover.add_argument("--doc-assoc", help="封面 Associated Documents")
+    cover.add_argument("--doc-type", help="封面 Document Type 值")
+    cover.add_argument("--doc-loc", help="封面 Document Location 值")
+    cover.add_argument("--history", help="封面 History 值")
+    cover.add_argument("--cover-name", help="Document Name 单元格 T,R,C")
+    cover.add_argument("--cover-assoc", help="Associated Docs 单元格 T,R,C")
+    cover.add_argument("--cover-type", help="Document Type 单元格 T,R,C")
+    cover.add_argument("--cover-loc", help="Document Location 单元格 T,R,C")
+    cover.add_argument("--cover-hist", help="History 单元格 T,R,C")
 
 
 def _cell(triple):
@@ -249,7 +251,7 @@ def find_pandoc():
         if os.path.exists(cand):
             pandoc = cand
     if pandoc is None:
-        raise SystemExit("pandoc not found on PATH (winget install pandoc)")
+        raise SystemExit("错误：pandoc not found on PATH（winget install pandoc）")
     return pandoc
 
 
@@ -557,7 +559,7 @@ def _resolve_template(project_root, given):
         if c.exists():
             return c
     tried = ", ".join(str(c) for c in candidates) if candidates else "(none)"
-    raise SystemExit(f"template not found. tried: {tried}")
+    raise SystemExit(f"错误：template not found。已尝试：{tried}")
 
 
 def build_config(args, project_root, global_cfg):
@@ -612,7 +614,7 @@ def build_config(args, project_root, global_cfg):
         cfg['cover_hist'] = parse_cell(args.cover_hist)
 
     if not args.md and 'md' not in cfg:
-        raise SystemExit('no input .md given (positional or --config)')
+        raise SystemExit('错误：未提供输入 .md 文件（位置参数或 --config）')
     cfg['md'] = args.md
     cfg['template'] = args.template or cfg.get('template')
     cfg['output'] = args.output or cfg.get('output')
@@ -667,7 +669,7 @@ def run(args) -> int:
     if body_start is None:
         body_start = detect_body_start(lines)
         if body_start is None:
-            raise SystemExit('could not auto-detect body start; use --body-start')
+            raise SystemExit('错误：无法自动检测正文起始行；请用 --body-start 指定')
         body_start = skip_cover_preamble(lines, body_start)
     body = lines[body_start:]
     out_lines = []

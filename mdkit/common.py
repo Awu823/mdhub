@@ -80,10 +80,21 @@ def load_config(project_root: Path) -> dict:
 
 
 def resolve_input(project_root: Path, given: str) -> Path:
-    """Resolve an input path: absolute, cwd-relative, or under data/input/."""
+    """Resolve an input path: absolute, caller-cwd-relative, or under data/input/.
+
+    When invoked via bin/mdhub.bat the batch cd's to the project root, so a bare
+    relative path would otherwise be interpreted against the project root instead
+    of the directory the user actually ran from. bin/mdhub.bat preserves the
+    caller's original cwd in MDHUB_CALLER_CWD; prefer it for a natural feel.
+    """
     cfg = load_config(project_root)
     input_dir = cfg.get("input_dir") or "data/input"
     p = Path(given)
+    caller = os.environ.get("MDHUB_CALLER_CWD")
+    if caller:
+        c = Path(caller) / given
+        if c.exists():
+            return c
     if p.exists():
         return p
     cand = Path(project_root) / input_dir / given
