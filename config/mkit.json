@@ -1,0 +1,32 @@
+{
+  "output_dir": "data/output",
+  "workdir": "data/output/_tmp",
+  "input_dir": "data/input",
+  "docx": {
+    "template": "template.docx",
+    "body_start": null,
+    "doc_name": null,
+    "doc_assoc": null,
+    "doc_type": null,
+    "doc_loc": null,
+    "history": null,
+    "cover_name": [0, 0, 1],
+    "cover_assoc": [0, 3, 1],
+    "cover_type": [0, 1, 1],
+    "cover_loc": [0, 2, 1],
+    "cover_hist": [1, 2, 1]
+  },
+  "html": {
+    "theme": "midnight",
+    "mermaid": true,
+    "inline_css": true
+  },
+  "pdf": {
+    "template": "pandoc/eisvogel.tex",
+    "engine": "auto"
+  },
+  "pptx": {
+    "backend": "auto",
+    "browser": "chrome"
+  }
+}

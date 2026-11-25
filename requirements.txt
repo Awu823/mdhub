@@ -1,0 +1,11 @@
+# mdhub / mdkit — unified Markdown conversion toolkit
+#
+# Core (required for the 3 legacy tools + doctor)
+lxml==6.1.3
+python-docx==1.2.0
+typing_extensions>=4.9
+
+# Reverse: arbitrary file -> Markdown (optional, heavy; lazy-imported)
+# NOTE: markitdown 0.1.8+ requires Python <3.15. build.bat creates .venv with
+# py -3.14 so this resolves to a working version (0.1.9), not the broken 0.0.2.
+markitdown[all]

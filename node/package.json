@@ -1,0 +1,13 @@
+{
+  "name": "mdkit-node",
+  "private": true,
+  "type": "module",
+  "description": "mdkit Node renderer: Markdown -> standalone HTML (Mermaid + highlight + themes). Reuses assets/html/vendor.",
+  "dependencies": {
+    "marked": "^15.0.0",
+    "mermaid": "^11.0.0",
+    "highlight.js": "^11.0.0",
+    "jsdom": "^24.0.0",
+    "dompurify": "^3.0.0"
+  }
+}

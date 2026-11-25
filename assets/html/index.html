@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="midnight">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>md2html — Markdown 报告转换器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700;800;900&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+/* Inlined from css/app.css so styles remain readable over file:// for export. */
+/* ============ BASE ============ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+button:focus-visible, select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 80%, transparent);
+  outline-offset: 2px;
+}
+
+/* ============ APP LAYOUT ============ */
+.app {
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+}
+
+/* ============ TOP BAR ============ */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--code-header-bg), var(--bg) 12%), var(--code-header-bg));
+  color: var(--heading);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10);
+  position: relative;
+  z-index: 60;
+}
+.topbar .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+.topbar .brand b {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--heading);
+  letter-spacing: 0.01em;
+}
+.topbar .brand span {
+  font-size: 11px;
+  font-weight: 500;
+  /* Secondary text derived from the heading hue keeps >=4.5:1 on every theme's
+     topbar (var(--muted) dipped to ~3.7-4.4:1 on midnight/academic/formal). */
+  color: color-mix(in srgb, var(--heading) 78%, var(--code-header-bg));
+  border-left: 1px solid color-mix(in srgb, var(--heading) 20%, transparent);
+  padding-left: 10px;
+}
+.spacer { flex: 1; }
+
+/* ============ BUTTONS ============ */
+.tbtn {
+  min-height: 34px;
+  padding: 7px 13px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--heading) 7%, transparent);
+  color: var(--heading);
+  font-size: 12.5px;
+  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s, transform 0.15s;
+  white-space: nowrap;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--heading) 16%, transparent);
+}
+.tbtn:hover { background: color-mix(in srgb, var(--heading) 14%, transparent); transform: translateY(-1px); }
+.tbtn.primary {
+  background: var(--heading);
+  color: var(--bg);
+  font-weight: 750;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.30), 0 6px 16px color-mix(in srgb, var(--bg) 35%, transparent);
+}
+.tbtn.primary:hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+/* ============ THEME SELECT ============ */
+.theme-select {
+  height: 34px;
+  min-width: 120px;
+  padding: 0 28px 0 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--heading) 7%, transparent);
+  color: var(--heading);
+  border: 1px solid color-mix(in srgb, var(--heading) 22%, transparent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  appearance: auto;
+  cursor: pointer;
+}
+.theme-select:hover { background: color-mix(in srgb, var(--heading) 13%, transparent); border-color: color-mix(in srgb, var(--heading) 38%, transparent); }
+/* Native dropdown popup is light on Windows; give options a solid themed background
+   so light theme-text stays readable when a dark theme is active. */
+.theme-select option {
+  background-color: var(--code-header-bg);
+  color: var(--heading);
+}
+
+/* ============ TOPBAR RESPONSIVE ============ */
+/* Touch devices: controls meet the 44px target. Desktop keeps compact density. */
+@media (pointer: coarse) {
+  .tbtn, .theme-select { min-height: 44px; }
+}
+/* Narrow viewports: drop the subtitle, tighten padding/gaps so the toolbar
+   never overflows the page (375px content must not force horizontal scroll). */
+@media (max-width: 640px) {
+  .topbar { padding: 0 8px; gap: 4px; }
+  .topbar .brand { margin-right: 4px; }
+  .topbar .brand span { display: none; }
+  .tbtn { padding: 7px 9px; }
+  .theme-select { min-width: 0; max-width: 100px; }
+}
+
+/* ============ CANVAS ============ */
+.canvas {
+  overflow: auto;
+  padding: 32px 24px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg);
+  background-image: radial-gradient(circle at 1px 1px, var(--bg-dot, rgba(15, 23, 42, 0.05)) 1px, transparent 0);
+  background-size: 20px 20px, 100% 100%;
+}
+.canvas::-webkit-scrollbar { width: 7px; }
+.canvas::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
+.canvas:hover::-webkit-scrollbar-thumb { background: #c3cad6; }
+.canvas::-webkit-scrollbar-corner { background: transparent; }
+
+/* ============ REPORT PAGE ============ */
+.report-page {
+  width: 100%;
+  max-width: 1320px;
+  background: var(--page-bg, var(--bg));
+  border-radius: 8px;
+  padding: 48px 64px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+@media (max-width: 920px) {
+  .report-page { padding: 32px 24px; border-radius: 0; }
+}
+
+/* ============ REPORT CONTENT ============ */
+#report-content {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text);
+}
+#report-content h1 {
+  font-size: 30px;
+  font-weight: 800;
+  color: var(--heading);
+  margin: 0 0 28px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--border);
+  letter-spacing: -0.01em;
+}
+#report-content h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--heading);
+  margin: 48px 0 18px;
+  padding-left: 12px;
+  border-left: 4px solid var(--accent);
+}
+#report-content h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--heading);
+  margin: 32px 0 12px;
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+}
+#report-content h4 {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--muted);
+  margin: 24px 0 10px;
+  padding-left: 32px;
+  position: relative;
+}
+#report-content h4::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.5;
+  transform: translateY(-50%);
+}
+#report-content p {
+  margin: 0 0 16px;
+}
+#report-content ul, #report-content ol {
+  margin: 0 0 16px;
+  padding-left: 28px;
+}
+#report-content ul ul, #report-content ol ol,
+#report-content ul ol, #report-content ol ul {
+  margin: 6px 0 4px;
+}
+#report-content li {
+  margin: 6px 0;
+}
+#report-content li > p {
+  margin: 4px 0;
+}
+#report-content a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+#report-content a:hover {
+  border-bottom-color: var(--accent);
+}
+#report-content strong {
+  font-weight: 700;
+  color: var(--heading);
+}
+
+/* ============ SECTION INDENTATION ============ */
+#report-content .section-h3 {
+  padding-left: 16px;
+}
+#report-content .section-h4 {
+  padding-left: 16px;
+}
+@media (max-width: 920px) {
+  #report-content .section-h3 { padding-left: 12px; }
+  #report-content .section-h4 { padding-left: 12px; }
+}
+
+/* ============ TABLES ============ */
+#report-content .table-wrap {
+  overflow-x: auto;
+  margin: 0 0 20px;
+  border-radius: 8px;
+  border: 1px solid var(--table-border);
+}
+#report-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+#report-content thead {
+  background: var(--table-header-bg);
+}
+#report-content th {
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 700;
+  color: var(--table-header-text);
+  border-bottom: 1px solid var(--table-border);
+  white-space: nowrap;
+}
+#report-content td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--table-border);
+  color: var(--text);
+  vertical-align: top;
+}
+#report-content tbody tr:nth-child(even) {
+  background: var(--table-stripe-bg);
+}
+#report-content tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ============ CODE BLOCKS ============ */
+#report-content .code-block {
+  margin: 0 0 20px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--code-border);
+  background: var(--code-bg);
+}
+#report-content .code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--code-header-bg);
+  border-bottom: 1px solid var(--code-border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--code-header-text);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+#report-content .code-block pre {
+  margin: 0;
+  padding: 16px 18px;
+  overflow-x: auto;
+}
+#report-content .code-block pre code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--code-text);
+  background: none;
+  padding: 0;
+}
+#report-content code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.9em;
+  background: var(--inline-code-bg);
+  color: var(--inline-code-text);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+#report-content .code-block code {
+  background: none;
+  padding: 0;
+  color: var(--code-text);
+}
+
+/* ============ MERMAID ============ */
+#report-content .mermaid {
+  display: block;
+  margin: 0 0 24px;
+  padding: 20px;
+  background: var(--mermaid-bg);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: auto;
+}
+#report-content .mermaid svg {
+  display: block;
+  margin: 0 auto;
+  height: auto;
+  overflow: visible;
+}
+#report-content .mermaid foreignObject {
+  overflow: visible;
+}
+#report-content .mermaid .nodeLabel,
+#report-content .mermaid .edgeLabel {
+  line-height: 1.3;
+}
+#report-content .mermaid-error {
+  padding: 12px 16px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 13px;
+  margin: 0 0 20px;
+}
+#report-content .mermaid-error pre {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #991b1b;
+}
+
+/* ============ BLOCKQUOTE ============ */
+#report-content blockquote {
+  margin: 0 0 20px;
+  padding: 12px 18px;
+  background: var(--blockquote-bg);
+  border-left: 4px solid var(--blockquote-border);
+  border-radius: 0 8px 8px 0;
+  color: var(--blockquote-text);
+}
+#report-content blockquote p {
+  margin: 0;
+}
+
+/* ============ PRIORITY HEADINGS ============ */
+#report-content h2.priority-p0 {
+  border-left-color: #ef4444;
+}
+#report-content h2.priority-p1 {
+  border-left-color: #f97316;
+}
+#report-content h2.priority-p2 {
+  border-left-color: #eab308;
+}
+#report-content h2.priority-p3 {
+  border-left-color: #22c55e;
+}
+
+/* ============ EMPTY STATE ============ */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: color-mix(in srgb, var(--heading) 65%, var(--code-header-bg));
+}
+.empty-state .icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.3;
+}
+.empty-state p {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+.empty-state .hint {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+/* ============ LOADING STATE ============ */
+.loading {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.loading::after {
+  content: "";
+  display: block;
+  width: 32px;
+  height: 32px;
+  margin: 16px auto 0;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============ HIGHLIGHT.JS TOKEN COLORS ============ */
+.hljs-keyword { color: var(--hl-keyword); }
+.hljs-string { color: var(--hl-string); }
+.hljs-comment { color: var(--hl-comment); font-style: italic; }
+.hljs-number { color: var(--hl-number); }
+.hljs-title { color: var(--hl-title); }
+.hljs-attr { color: var(--hl-attr); }
+.hljs-built_in { color: var(--hl-built-in); }
+.hljs-type { color: var(--hl-type); }
+.hljs-literal { color: var(--hl-literal); }
+.hljs-meta { color: var(--hl-meta); }
+.hljs-variable { color: var(--hl-variable); }
+.hljs-symbol { color: var(--hl-symbol); }
+.hljs-section { color: var(--hl-title); }
+.hljs-name { color: var(--hl-keyword); }
+.hljs-attribute { color: var(--hl-attr); }
+.hljs-deletion { color: var(--hl-deletion); }
+.hljs-addition { color: var(--hl-addition); }
+
+  </style>
+  <style>
+/* Inlined from css/themes.css so styles remain readable over file:// for export. */
+/* ============ THEME SYSTEM ============ */
+
+/* ---- Midnight (default) ---- */
+:root, :root[data-theme="midnight"] {
+  --bg: #0e1015;
+  --page-bg: #14171e;
+  --bg-dot: rgba(255, 255, 255, 0.03);
+  --text: #c8cad3;
+  --heading: #e8eaf0;
+  --muted: #69707d;
+  --accent: #818cf8;
+  --border: #2a2d35;
+  --code-bg: #0c0e13;
+  --code-text: #c8cad3;
+  --code-border: #1e2128;
+  --code-header-bg: #14171e;
+  --code-header-text: #6b7280;
+  --inline-code-bg: #1e2128;
+  --inline-code-text: #818cf8;
+  --table-header-bg: #14171e;
+  --table-header-text: #e8eaf0;
+  --table-border: #2a2d35;
+  --table-stripe-bg: #111318;
+  --blockquote-bg: rgba(129, 140, 248, 0.06);
+  --blockquote-border: #818cf8;
+  --blockquote-text: #a8aab5;
+  --mermaid-bg: #0c0e13;
+  --hl-keyword: #c678dd;
+  --hl-string: #98c379;
+  --hl-comment: #6b7280;
+  --hl-number: #d19a66;
+  --hl-title: #61afef;
+  --hl-attr: #d19a66;
+  --hl-built-in: #56b6c2;
+  --hl-type: #61afef;
+  --hl-literal: #d19a66;
+  --hl-meta: #6b7280;
+  --hl-variable: #e06c75;
+  --hl-symbol: #56b6c2;
+  --hl-deletion: #e06c75;
+  --hl-addition: #98c379;
+}
+
+/* ---- Parchment ---- */
+:root[data-theme="parchment"] {
+  --bg: #faf8f3;
+  --page-bg: #fffdf8;
+  --bg-dot: rgba(58, 50, 38, 0.06);
+  --text: #3a3226;
+  --heading: #2a2418;
+  --muted: #8a8275;
+  --accent: #8b5cf6;
+  --border: #e8e0d0;
+  --code-bg: #f5f0e6;
+  --code-text: #3a3226;
+  --code-border: #d8d0c0;
+  --code-header-bg: #ede5d5;
+  --code-header-text: #8a7a60;
+  --inline-code-bg: #ede5d5;
+  --inline-code-text: #7c3aed;
+  --table-header-bg: #ede5d5;
+  --table-header-text: #2a2418;
+  --table-border: #d8d0c0;
+  --table-stripe-bg: #f8f4eb;
+  --blockquote-bg: rgba(139, 92, 246, 0.05);
+  --blockquote-border: #8b5cf6;
+  --blockquote-text: #5a5040;
+  --mermaid-bg: #f5f0e6;
+  --hl-keyword: #7c3aed;
+  --hl-string: #059669;
+  --hl-comment: #9a9285;
+  --hl-number: #c2410c;
+  --hl-title: #2563eb;
+  --hl-attr: #c2410c;
+  --hl-built-in: #0891b2;
+  --hl-type: #2563eb;
+  --hl-literal: #c2410c;
+  --hl-meta: #9a9285;
+  --hl-variable: #dc2626;
+  --hl-symbol: #0891b2;
+  --hl-deletion: #dc2626;
+  --hl-addition: #059669;
+}
+
+/* ---- Academic ---- */
+:root[data-theme="academic"] {
+  --bg: #ffffff;
+  --page-bg: #ffffff;
+  --bg-dot: rgba(0, 0, 0, 0.03);
+  --text: #1a1a1a;
+  --heading: #111111;
+  --muted: #666666;
+  --accent: #1e40af;
+  --border: #d1d5db;
+  --code-bg: #f7f7f9;
+  --code-text: #1a1a1a;
+  --code-border: #d1d5db;
+  --code-header-bg: #eeeef0;
+  --code-header-text: #555555;
+  --inline-code-bg: #eeeef0;
+  --inline-code-text: #1e40af;
+  --table-header-bg: #f3f4f6;
+  --table-header-text: #111111;
+  --table-border: #d1d5db;
+  --table-stripe-bg: #f9fafb;
+  --blockquote-bg: #f3f4f6;
+  --blockquote-border: #1e40af;
+  --blockquote-text: #374151;
+  --mermaid-bg: #f7f7f9;
+  --hl-keyword: #7c3aed;
+  --hl-string: #059669;
+  --hl-comment: #6b7280;
+  --hl-number: #c2410c;
+  --hl-title: #1e40af;
+  --hl-attr: #c2410c;
+  --hl-built-in: #0891b2;
+  --hl-type: #1e40af;
+  --hl-literal: #c2410c;
+  --hl-meta: #6b7280;
+  --hl-variable: #dc2626;
+  --hl-symbol: #0891b2;
+  --hl-deletion: #dc2626;
+  --hl-addition: #059669;
+}
+
+/* ---- Terminal ---- */
+:root[data-theme="terminal"] {
+  --bg: #0a0e0a;
+  --page-bg: #0d120d;
+  --bg-dot: rgba(74, 222, 128, 0.03);
+  --text: #4ade80;
+  --heading: #86efac;
+  --muted: #22c55e;
+  --accent: #86efac;
+  --border: #1a2a1a;
+  --code-bg: #080a08;
+  --code-text: #4ade80;
+  --code-border: #1a2a1a;
+  --code-header-bg: #0d120d;
+  --code-header-text: #22c55e;
+  --inline-code-bg: #1a2a1a;
+  --inline-code-text: #86efac;
+  --table-header-bg: #0d120d;
+  --table-header-text: #86efac;
+  --table-border: #1a2a1a;
+  --table-stripe-bg: #0a0e0a;
+  --blockquote-bg: rgba(74, 222, 128, 0.05);
+  --blockquote-border: #4ade80;
+  --blockquote-text: #22c55e;
+  --mermaid-bg: #080a08;
+  --hl-keyword: #86efac;
+  --hl-string: #fde047;
+  --hl-comment: #22c55e;
+  --hl-number: #fde047;
+  --hl-title: #4ade80;
+  --hl-attr: #fde047;
+  --hl-built-in: #67e8f9;
+  --hl-type: #4ade80;
+  --hl-literal: #fde047;
+  --hl-meta: #22c55e;
+  --hl-variable: #f87171;
+  --hl-symbol: #67e8f9;
+  --hl-deletion: #f87171;
+  --hl-addition: #4ade80;
+}
+
+/* ---- Slate ---- */
+:root[data-theme="slate"] {
+  --bg: #1e293b;
+  --page-bg: #283447;
+  --bg-dot: rgba(148, 163, 184, 0.04);
+  --text: #cbd5e1;
+  --heading: #f1f5f9;
+  --muted: #64748b;
+  --accent: #38bdf8;
+  --border: #334155;
+  --code-bg: #1e293b;
+  --code-text: #cbd5e1;
+  --code-border: #334155;
+  --code-header-bg: #283447;
+  --code-header-text: #64748b;
+  --inline-code-bg: #334155;
+  --inline-code-text: #38bdf8;
+  --table-header-bg: #283447;
+  --table-header-text: #f1f5f9;
+  --table-border: #334155;
+  --table-stripe-bg: #243140;
+  --blockquote-bg: rgba(56, 189, 248, 0.06);
+  --blockquote-border: #38bdf8;
+  --blockquote-text: #94a3b8;
+  --mermaid-bg: #1e293b;
+  --hl-keyword: #c084fc;
+  --hl-string: #86efac;
+  --hl-comment: #64748b;
+  --hl-number: #fcd34d;
+  --hl-title: #38bdf8;
+  --hl-attr: #fcd34d;
+  --hl-built-in: #67e8f9;
+  --hl-type: #38bdf8;
+  --hl-literal: #fcd34d;
+  --hl-meta: #64748b;
+  --hl-variable: #f87171;
+  --hl-symbol: #67e8f9;
+  --hl-deletion: #f87171;
+  --hl-addition: #86efac;
+}
+
+/* ---- Apple ---- */
+:root[data-theme="apple"] {
+  --bg: #f5f5f7;
+  --page-bg: #ffffff;
+  --bg-dot: rgba(0, 0, 0, 0.025);
+  --text: #1d1d1f;
+  --heading: #1d1d1f;
+  --muted: #86868b;
+  --accent: #007aff;
+  --border: #d2d2d7;
+  --code-bg: #f5f5f7;
+  --code-text: #1d1d1f;
+  --code-border: #e5e5ea;
+  --code-header-bg: #efeef2;
+  --code-header-text: #86868b;
+  --inline-code-bg: #efeef2;
+  --inline-code-text: #007aff;
+  --table-header-bg: #f5f5f7;
+  --table-header-text: #1d1d1f;
+  --table-border: #d2d2d7;
+  --table-stripe-bg: #fbfbfd;
+  --blockquote-bg: #f5f5f7;
+  --blockquote-border: #007aff;
+  --blockquote-text: #6e6e73;
+  --mermaid-bg: #f5f5f7;
+  --hl-keyword: #9b2393;
+  --hl-string: #c41a16;
+  --hl-comment: #8e8e93;
+  --hl-number: #1c00cf;
+  --hl-title: #3900d0;
+  --hl-attr: #c41a16;
+  --hl-built-in: #9b2393;
+  --hl-type: #3900d0;
+  --hl-literal: #c41a16;
+  --hl-meta: #8e8e93;
+  --hl-variable: #1c00cf;
+  --hl-symbol: #9b2393;
+  --hl-deletion: #c41a16;
+  --hl-addition: #2e7d32;
+}
+
+/* ============ APPLE FONT OVERRIDE ============ */
+:root[data-theme="apple"] #report-content {
+  font-family: -apple-system, "SF Pro Text", "SF Pro Display", Inter, "Noto Sans SC", system-ui, sans-serif;
+}
+:root[data-theme="apple"] #report-content h1,
+:root[data-theme="apple"] #report-content h2,
+:root[data-theme="apple"] #report-content h3,
+:root[data-theme="apple"] #report-content h4 {
+  font-family: -apple-system, "SF Pro Display", Inter, "Noto Sans SC", system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+:root[data-theme="apple"] #report-content .code-block code,
+:root[data-theme="apple"] #report-content code {
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+}
+:root[data-theme="apple"] .report-page {
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.06);
+}
+:root[data-theme="apple"] #report-content h2 {
+  border-left-width: 3px;
+  border-radius: 0 4px 4px 0;
+}
+:root[data-theme="apple"] #report-content .code-block {
+  border-radius: 10px;
+}
+:root[data-theme="apple"] #report-content .code-header {
+  border-radius: 10px 10px 0 0;
+}
+:root[data-theme="apple"] #report-content .mermaid {
+  border-radius: 10px;
+}
+
+/* ============ FORMAL THEME ============ */
+:root[data-theme="formal"] {
+  --bg: #ffffff;
+  --page-bg: #fdfdfb;
+  --bg-dot: rgba(30, 58, 95, 0.03);
+  --text: #2d2d2d;
+  --heading: #1a1a1a;
+  --muted: #6b6b6b;
+  --accent: #1e3a5f;
+  --border: #d4d4d4;
+  --code-bg: #f5f5f5;
+  --code-text: #2d2d2d;
+  --code-border: #e0e0e0;
+  --code-header-bg: #eeeeee;
+  --code-header-text: #6b6b6b;
+  --inline-code-bg: #f0f0f0;
+  --inline-code-text: #1e3a5f;
+  --table-header-bg: #f0f0f0;
+  --table-header-text: #1a1a1a;
+  --table-border: #d4d4d4;
+  --table-stripe-bg: #fafafa;
+  --blockquote-bg: #f7f7f7;
+  --blockquote-border: #1e3a5f;
+  --blockquote-text: #555555;
+  --mermaid-bg: #f5f5f5;
+  --hl-keyword: #6f42c1;
+  --hl-string: #22863a;
+  --hl-comment: #6b6b6b;
+  --hl-number: #005cc5;
+  --hl-title: #1e3a5f;
+  --hl-attr: #005cc5;
+  --hl-built-in: #032f62;
+  --hl-type: #1e3a5f;
+  --hl-literal: #005cc5;
+  --hl-meta: #6b6b6b;
+  --hl-variable: #b31d28;
+  --hl-symbol: #032f62;
+  --hl-deletion: #b31d28;
+  --hl-addition: #22863a;
+}
+
+/* ============ FORMAL FONT OVERRIDE ============ */
+:root[data-theme="formal"] #report-content {
+  font-family: Georgia, "Noto Serif SC", "Times New Roman", serif;
+}
+:root[data-theme="formal"] #report-content h1,
+:root[data-theme="formal"] #report-content h2,
+:root[data-theme="formal"] #report-content h3,
+:root[data-theme="formal"] #report-content h4 {
+  font-family: Georgia, "Noto Serif SC", "Times New Roman", serif;
+  letter-spacing: 0.01em;
+}
+:root[data-theme="formal"] #report-content .code-block code,
+:root[data-theme="formal"] #report-content code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+:root[data-theme="formal"] .report-page {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.04);
+}
+:root[data-theme="formal"] #report-content h1 {
+  border-bottom: 3px double var(--border);
+}
+:root[data-theme="formal"] #report-content h2 {
+  border-left-width: 3px;
+}
+
+:root[data-theme="academic"] #report-content {
+  font-family: Georgia, "Noto Serif SC", "Times New Roman", serif;
+}
+:root[data-theme="academic"] #report-content .code-block code,
+:root[data-theme="academic"] #report-content code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+/* ============ TERMINAL MONO FONT OVERRIDE ============ */
+:root[data-theme="terminal"] #report-content {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="brand">
+        <b>md2html</b>
+        <span>Report Converter</span>
+      </div>
+      <div class="spacer"></div>
+      <input type="file" id="file-input" accept=".md,.markdown,.txt" style="display:none">
+      <button class="tbtn" id="import-btn">导入 .md</button>
+      <select class="theme-select" id="theme-select">
+        <option value="midnight">Midnight</option>
+        <option value="parchment">Parchment</option>
+        <option value="academic">Academic</option>
+        <option value="apple">Apple</option>
+        <option value="terminal">Terminal</option>
+        <option value="slate">Slate</option>
+        <option value="formal">Formal</option>
+      </select>
+      <button class="tbtn primary" id="export-btn">导出 HTML</button>
+    </div>
+    <!-- CANVAS -->
+    <div class="canvas">
+      <div class="report-page">
+        <div id="report-content">
+          <div class="loading">正在加载报告…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VENDOR SCRIPTS -->
+  <script src="vendor/marked.min.js" defer></script>
+  <script>
+    window.__hlCjs = { module: window.module, exports: window.exports, define: window.define };
+    window.module = undefined; window.exports = undefined; window.define = undefined;
+  </script>
+  <script src="vendor/highlight.min.js" defer></script>
+  <script>
+    window.module = window.__hlCjs.module;
+    window.exports = window.__hlCjs.exports;
+    window.define = window.__hlCjs.define;
+    delete window.__hlCjs;
+  </script>
+  <script src="vendor/abap.min.js" defer></script>
+  <script src="vendor/mermaid.min.js" defer></script>
+
+  <!-- MAIN SCRIPT -->
+  <script>
+    "use strict";
+    (function () {
+      let currentMdText = "";
+
+      function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      }
+
+      function syncMermaidTheme() {
+        const bg = cssVar("--bg") || "#0e1015";
+        const isDark = (() => {
+          const hex = bg.replace("#", "");
+          if (hex.length === 6) {
+            const r = parseInt(hex.slice(0,2), 16);
+            const g = parseInt(hex.slice(2,4), 16);
+            const b = parseInt(hex.slice(4,6), 16);
+            return (r + g + b) / 3 < 128;
+          }
+          return false;
+        })();
+
+        const lineCol = isDark ? (cssVar("--muted") || "#69707d") : "#666";
+        const nodeFill = cssVar("--code-header-bg") || (isDark ? "#1e2128" : "#eeeef0");
+        const nodeText = cssVar("--heading") || (isDark ? "#e8eaf0" : "#111");
+        const nodeBorder = cssVar("--border") || (isDark ? "#3a3d45" : "#d1d5db");
+        const lblBg = cssVar("--mermaid-bg") || (isDark ? "#0c0e13" : "#f7f7f9");
+        const txtCol = cssVar("--text") || (isDark ? "#c8cad3" : "#1a1a1a");
+        const accentCol = cssVar("--accent") || (isDark ? "#818cf8" : "#1e40af");
+
+        try {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: "base",
+            themeVariables: {
+              fontFamily: "Inter, Noto Sans SC, sans-serif",
+              fontSize: "14px",
+              lineColor: lineCol,
+              textColor: txtCol,
+              background: lblBg,
+              mainBkg: nodeFill,
+              primaryColor: nodeFill,
+              primaryTextColor: nodeText,
+              primaryBorderColor: accentCol,
+              secondaryColor: nodeFill,
+              tertiaryColor: nodeFill,
+              edgeLabelBackground: lblBg,
+              clusterBkg: lblBg,
+              clusterBorder: nodeBorder,
+            },
+            securityLevel: "loose",
+            flowchart: { useMaxWidth: false, htmlLabels: true, curve: "basis" },
+            sequence: { useMaxWidth: false, actorMargin: 50, boxMargin: 10 },
+          });
+        } catch (e) {
+        }
+      }
+
+      function escapeHtml(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      function addIndentation(container) {
+        const children = Array.from(container.children);
+        let wrap3 = null;
+        let wrap4 = null;
+        for (const el of children) {
+          const tag = el.tagName;
+          if (tag === "H1" || tag === "H2") {
+            wrap3 = null;
+            wrap4 = null;
+          } else if (tag === "H3") {
+            wrap4 = null;
+            wrap3 = document.createElement("div");
+            wrap3.className = "section-h3";
+            container.insertBefore(wrap3, el);
+            wrap3.appendChild(el);
+          } else if (tag === "H4") {
+            wrap4 = null;
+            wrap4 = document.createElement("div");
+            wrap4.className = "section-h4";
+            el.parentNode.insertBefore(wrap4, el);
+            wrap4.appendChild(el);
+            if (wrap3 && wrap4.parentNode !== wrap3) {
+              wrap3.appendChild(wrap4);
+            }
+          } else {
+            if (wrap4) wrap4.appendChild(el);
+            else if (wrap3) wrap3.appendChild(el);
+          }
+        }
+      }
+
+      const renderer = {
+        code({ text, lang }) {
+          const escaped = escapeHtml(text);
+          if (lang === "mermaid") {
+            return `<div class="mermaid">${escaped}</div>`;
+          }
+          const langLabel = lang || "text";
+          const langClass = lang ? `language-${lang}` : "language-text";
+          return `<div class="code-block">
+            <div class="code-header"><span>${langLabel.toUpperCase()}</span></div>
+            <pre><code class="${langClass}">${escaped}</code></pre>
+          </div>`;
+        },
+        heading({ text, depth }) {
+          const slug = text.replace(/<[^>]+>/g, "").trim()
+            .toLowerCase().replace(/[^\w\u4e00-\u9fff]+/g, "-").replace(/^-|-$/g, "");
+          let cls = "";
+          if (depth === 2) {
+            if (/🔴|P0/i.test(text)) cls = " priority-p0";
+            else if (/🟠|P1/i.test(text)) cls = " priority-p1";
+            else if (/🟡|P2/i.test(text)) cls = " priority-p2";
+            else if (/🟢|P3/i.test(text)) cls = " priority-p3";
+          }
+          return `<h${depth} id="${slug}" class="${cls.trim()}">${text}</h${depth}>`;
+        },
+      };
+      function setupMarked() {
+        marked.use({ renderer, gfm: true, breaks: false });
+      }
+
+      function setupMermaidZoom(div) {
+        var svg = div.querySelector("svg");
+        if (!svg) return;
+        var vb = svg.viewBox && svg.viewBox.baseVal;
+        var naturalW = (vb && vb.width) || parseFloat(svg.getAttribute("width")) || 800;
+        var naturalH = (vb && vb.height) || parseFloat(svg.getAttribute("height")) || 600;
+        var cs = getComputedStyle(div);
+        var padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+        var padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+        var borderH = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+        var availW = div.clientWidth - padX;
+        var fitScale = Math.min(1, availW / naturalW);
+        var zoom = fitScale;
+        div.style.height = (naturalH * fitScale + padY + borderH) + "px";
+        function applyZoom() {
+          svg.style.width = (naturalW * zoom) + "px";
+          svg.style.height = "auto";
+        }
+        applyZoom();
+        div.addEventListener("wheel", function (e) {
+          if (!e.ctrlKey) return;
+          e.preventDefault();
+          var factor = e.deltaY > 0 ? 0.9 : 1.1;
+          zoom = Math.max(0.1, Math.min(5, zoom * factor));
+          applyZoom();
+        }, { passive: false });
+        svg.addEventListener("dblclick", function (e) {
+          e.preventDefault();
+          zoom = fitScale;
+          applyZoom();
+        });
+      }
+
+      async function renderMarkdown(mdText) {
+        currentMdText = mdText;
+        const container = document.getElementById("report-content");
+        container.innerHTML = '<div class="loading">正在渲染…</div>';
+
+        syncMermaidTheme();
+
+        let html = marked.parse(mdText);
+        container.innerHTML = html;
+
+        container.querySelectorAll("table").forEach((table) => {
+          if (table.parentElement.classList.contains("table-wrap")) return;
+          const wrap = document.createElement("div");
+          wrap.className = "table-wrap";
+          table.parentNode.insertBefore(wrap, table);
+          wrap.appendChild(table);
+        });
+
+        addIndentation(container);
+
+        container.querySelectorAll("pre code").forEach((block) => {
+          if (block.classList.contains("language-mermaid")) return;
+          try {
+            hljs.highlightElement(block);
+          } catch (e) {
+          }
+        });
+
+        const mermaidDivs = container.querySelectorAll(".mermaid");
+        for (let i = 0; i < mermaidDivs.length; i++) {
+          const div = mermaidDivs[i];
+          const code = div.textContent;
+          try {
+            const id = "mmd-" + Date.now() + "-" + i;
+            const result = await mermaid.render(id, code);
+            const svgStr = typeof result === "string" ? result : (result.svg || "");
+            if (svgStr) {
+              div.innerHTML = svgStr;
+              setupMermaidZoom(div);
+            } else {
+              throw new Error("mermaid.render returned empty result");
+            }
+          } catch (e) {
+            div.className = "mermaid-error";
+            div.innerHTML = '<strong>Mermaid \u6e32\u67d3\u5931\u8d25:</strong><pre>' + escapeHtml(String(e.message || e)) + '</pre>';
+          }
+        }
+      }
+
+      async function loadFile(url) {
+        try {
+          const resp = await fetch(url);
+          if (resp.ok) return await resp.text();
+        } catch (e) {
+        }
+        try {
+          return await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", url, true);
+            xhr.overrideMimeType("text/plain; charset=utf-8");
+            xhr.onload = () => {
+              if (xhr.status === 0 || xhr.status === 200) resolve(xhr.responseText);
+              else reject(new Error("HTTP " + xhr.status));
+            };
+            xhr.onerror = () => reject(new Error("XHR failed"));
+            xhr.send();
+          });
+        } catch (e) {
+          showEmpty("无法自动加载报告文件。请点击「导入 .md」按钮手动选择文件。");
+          return null;
+        }
+      }
+
+      function showEmpty(msg) {
+        document.getElementById("report-content").innerHTML =
+          `<div class="empty-state">
+            <div class="icon">📄</div>
+            <p>未加载报告</p>
+            <div class="hint">${msg || "点击「导入 .md」加载文件"}</div>
+          </div>`;
+      }
+
+      const themeSelect = document.getElementById("theme-select");
+      themeSelect.addEventListener("change", async (e) => {
+        document.documentElement.dataset.theme = e.target.value;
+        if (currentMdText) {
+          await renderMarkdown(currentMdText);
+        }
+      });
+
+      const fileInput = document.getElementById("file-input");
+      document.getElementById("import-btn").addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const text = await file.text();
+        await renderMarkdown(text);
+        fileInput.value = "";
+      });
+
+      const canvas = document.querySelector(".canvas");
+      canvas.addEventListener("dragover", (e) => { e.preventDefault(); });
+      canvas.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files[0];
+        if (!file || !/\.(md|markdown|txt)$/i.test(file.name)) return;
+        const text = await file.text();
+        await renderMarkdown(text);
+      });
+
+      document.getElementById("export-btn").addEventListener("click", exportHtml);
+
+      function collectCss() {
+        let css = "";
+        for (const sheet of document.styleSheets) {
+          try {
+            const rules = sheet.cssRules;
+            if (!rules) continue;
+            for (const rule of rules) {
+              css += rule.cssText + "\n";
+            }
+          } catch (e) {
+          }
+        }
+        return css;
+      }
+
+      async function exportHtml() {
+        const theme = document.documentElement.dataset.theme;
+        const reportHtml = document.getElementById("report-content").innerHTML;
+        const allCss = collectCss();
+
+        const h1 = reportHtml.match(/<h1[^>]*>(.*?)<\/h1>/i);
+        const title = h1 ? h1[1].replace(/<[^>]+>/g, "").trim() : "report";
+
+        const html = `<!doctype html>
+<html lang="zh-CN" data-theme="${theme}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700;800;900&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+${allCss}
+
+body { overflow: auto; }
+.app { display: block; height: auto; }
+.canvas { overflow: visible; padding: 24px; }
+.report-page { max-width: 860px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<div class="app">
+<div class="canvas">
+<div class="report-page">
+<div id="report-content">
+${reportHtml}
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>`;
+
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = title + ".html";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+      }
+
+      async function init() {
+        setupMarked();
+        const md = await loadFile("zalvtree-report.md");
+        if (md) await renderMarkdown(md);
+      }
+      // Vendor scripts are deferred (marked/mermaid/highlight run before
+      // DOMContentLoaded), so start rendering only once they are ready.
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init, { once: true });
+      } else {
+        init();
+      }
+    })();
+  </script>
+</body>
+</html>
