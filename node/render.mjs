@@ -14,7 +14,7 @@
  * highlight/min, abap/min). If those are missing, falls back to installed
  * node_modules (run `npm i` in node/).
  */
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,22 +48,6 @@ if (!existsSync(input)) {
   process.exit(1);
 }
 if (!output) output = input.replace(/\.[^.]+$/, "") + ".html";
-
-// ---- load vendor libs (prefer assets/html/vendor) -------------------------
-function loadLib(name, fallbackImport) {
-  const vendored = resolve(HTML_DIR, "vendor", name + ".min.js");
-  if (existsSync(vendored)) {
-    const src = readFileSync(vendored, "utf8");
-    const fn = new Function("module", "exports", "window", "globalThis", "require", "module.exports = (function(){" + src + "}).call(this, module, module.exports, window, globalThis, require); return module.exports;");
-    const mod = { exports: {} };
-    const sandboxWindow = {};
-    const sandboxGlobal = globalThis;
-    const sandboxRequire = (m) => require(m);
-    fn(mod, mod.exports, sandboxWindow, sandboxGlobal, sandboxRequire);
-    return mod.exports;
-  }
-  return fallbackImport();
-}
 
 // ---- CSS -------------------------------------------------------------------
 function readCss(file) {
@@ -119,6 +103,26 @@ const renderer = {
     }
     return `<h${depth} id="${slug}" class="${cls.trim()}">${text}</h${depth}>`;
   },
+  blockquote(token) {
+    const inner = this.parser.parse(token.tokens);
+    // Obsidian-style alert: first paragraph is `[!TYPE] title`.
+    const m = inner.match(/<p>\s*\[!(\w+)\]\s*(.*?)\s*<\/p>/s);
+    if (m) {
+      const type = m[1].toLowerCase();
+      const title = m[2] || ADMONITION_DEFAULTS[type] || type;
+      const body = inner.replace(m[0], "");
+      return `<div class="callout callout-${type}">
+                <div class="callout-title">${escapeHtml(title)}</div>
+                <div class="callout-body">${body}</div>
+              </div>`;
+    }
+    return `<blockquote>${inner}</blockquote>`;
+  },
+};
+
+const ADMONITION_DEFAULTS = {
+  note: "Note", info: "Info", tip: "Tip", success: "Success",
+  warning: "Warning", caution: "Caution", important: "Important", danger: "Danger",
 };
 
 const marked = new Marked({ gfm: true, breaks: false, renderer });

@@ -7,11 +7,28 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 CONFIG_NAME = "mkit.json"
+
+# Admonition/callout markers, per picoloom/markdownFly conventions:
+#   > [!NOTE] title        (Obsidian-style blockquote alert)
+#   > [!WARNING] title
+#   ::: note  ...  :::      (Pandoc-style fenced div)
+ADMONITION_TYPES = {
+    "note": ("note", "提示", "⚠"),
+    "tip": ("tip", "提示", "💡"),
+    "important": ("important", "重要", "⭐"),
+    "warning": ("warning", "警告", "⚠"),
+    "caution": ("caution", "注意", "⚠"),
+    "danger": ("danger", "危险", "⛔"),
+    "info": ("info", "信息", "ℹ"),
+    "success": ("success", "成功", "✅"),
+}
 
 
 def full_path_env(extra: dict | None = None) -> dict:
@@ -144,9 +161,139 @@ def make_subargs(project_root, *, md=None, output=None, input_path=None, **overr
         to=None,
         keep=False,
         json=False,
+        # Composed modules (multi/pipe) run sub-modules quietly; the caller
+        # owns the progress/summary output.
+        quiet=True,
+        # docx rendering
+        mermaid="auto",
+        syntax_highlighting="default",
     )
     for k, v in overrides.items():
         setattr(ns, k, v)
     ns._project_root = str(project_root)
-    ns._project_root_path = project_root
     return ns
+
+
+def add_output_args(sp):
+    """Attach the cross-cutting --json / --quiet flags shared by subcommands."""
+    sp.add_argument("--json", action="store_true", help="以 JSON 输出机器可读结果")
+    sp.add_argument("--quiet", action="store_true", help="只输出错误（静默成功项）")
+
+
+def is_dir_output(output) -> bool:
+    """True if an ``-o`` value should be treated as an output directory.
+
+    A value ending in a path separator, an existing directory, or one with no
+    file extension is treated as a directory; anything else is a file path.
+    """
+    if not output:
+        return False
+    s = str(output)
+    if s.endswith(("/", "\\")):
+        return True
+    p = Path(output)
+    if p.exists() and p.is_dir():
+        return True
+    return p.suffix == ""
+
+
+def expand_inputs(project_root: Path, given: str, exts=(".md",)) -> list[Path]:
+    """Expand an input spec into a list of files.
+
+    A directory globs its matching files (sorted); a single path is returned
+    as-is. Non-absolute paths resolve via :func:`resolve_input`.
+    """
+    raw = Path(given)
+    resolved = resolve_input(project_root, given) if not raw.is_absolute() else raw
+    if resolved.is_dir():
+        return sorted(f for f in resolved.iterdir()
+                      if f.is_file() and (not exts or f.suffix.lower() in exts))
+    return [resolved]
+
+
+class Reporter:
+    """Collect per-file results and emit human or JSON output.
+
+    ``quiet`` suppresses per-item OK lines (errors always print to stderr).
+    ``json_out`` prints a single JSON object on stdout at :meth:`finish`.
+    ``finish`` returns the process exit code (0 iff every result is OK).
+    """
+
+    def __init__(self, quiet: bool = False, json_out: bool = False):
+        self.quiet = quiet
+        self.json_out = json_out
+        self.results: list[dict] = []
+
+    def ok(self, name, output=None, **extra):
+        rec = {"file": str(name), "ok": True, "output": str(output) if output else None}
+        rec.update(extra)
+        self.results.append(rec)
+        if not (self.quiet or self.json_out):
+            line = f"OK  {rec['file']}"
+            if rec["output"]:
+                line += f" -> {rec['output']}"
+            print(line)
+
+    def fail(self, name, error, **extra):
+        rec = {"file": str(name), "ok": False, "error": str(error)}
+        rec.update(extra)
+        self.results.append(rec)
+        print(f"ERR {rec['file']}: {error}", file=sys.stderr)
+
+    @property
+    def all_ok(self) -> bool:
+        return all(r["ok"] for r in self.results)
+
+    def finish(self) -> int:
+        if self.json_out:
+            print(json.dumps({"ok": self.all_ok, "results": self.results},
+                             ensure_ascii=False))
+        return 0 if self.all_ok else 1
+
+
+def transform_admonitions(text: str) -> str:
+    """Rewrite callout markers into pandoc-friendly bold-labeled blockquotes.
+
+    Used by the docx/pdf backends (pandoc), which cannot style ``> [!NOTE]``
+    without custom reference styles. Each callout becomes a blockquote whose
+    first line is a bold label, so it renders as an indented, labelled note.
+
+    HTML keeps the native ``[!TYPE]`` syntax (rendered by node/render.mjs).
+    """
+    out: list[str] = []
+    in_block = False  # inside a pandoc `::: type` fence
+    block_quote = False  # inside a `> [!TYPE]` blockquote
+    for line in text.splitlines():
+        if in_block:
+            if line.strip() == ":::":
+                out.append("")  # close fence
+                in_block = False
+            else:
+                out.append(("> " + line) if line.strip() else ">")
+            continue
+        m = re.match(r"^:::\s*(\w+)\s*(.*)$", line)
+        if m:
+            kind = m.group(1).lower()
+            title = m.group(2).strip() or ADMONITION_TYPES.get(kind, (kind, kind, "•"))[1]
+            out.append(f"> **{title}**")
+            in_block = True
+            continue
+
+        bm = re.match(r"^>\s*\[!(\w+)\]\s*(.*)$", line)
+        if bm:
+            if block_quote:
+                out.append("")  # terminate previous blockquote
+            kind = bm.group(1).lower()
+            title = bm.group(2).strip() or ADMONITION_TYPES.get(kind, (kind, kind, "•"))[1]
+            out.append(f"> **{title}**")
+            block_quote = True
+            continue
+        if block_quote:
+            if line.strip():
+                out.append(("> " + line.lstrip()) if not line.lstrip().startswith(">") else line)
+            else:
+                out.append("")
+                block_quote = False
+            continue
+        out.append(line)
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")

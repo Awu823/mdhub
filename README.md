@@ -48,6 +48,43 @@ bin\mdhub.bat pipe  in.docx --to md,docx  链式：docx→md→docx
 bin\mdhub.bat sanitize templates\template.docx   模板脱敏
 ```
 
+### 自动化 / 批量 / 告示
+
+各转换子命令（`docx` `html` `pdf` `pptx` `to-md` `multi` `pipe`）都支持以下横切选项：
+
+```bat
+:: --json：机器可读结果（stdout 只输出一个 JSON 对象，供脚本/CI 消费）
+:: --quiet：只输出错误（抑制成功进度行）
+:: 输入传目录 = 批量转换（输出需用 -o 指定输出目录）
+bin\mdhub.bat html .\docs\ -o .\out\ --json
+bin\mdhub.bat pdf  in.md --json
+bin\mdhub.bat to-md .\docs\ -o .\out\ --quiet
+```
+
+- `--json` 输出形如 `{"ok":true,"results":[{"file":...,"ok":true,"output":...}]}`。
+- 目录输入会按扩展名（`.md`；`to-md` 为任意文件）递归收集并逐个转换。
+- `to-md` 额外支持 `http(s)://` URL（markitdown `convert_url`）。
+  - 对证书链异常（自签名/过期）的站点，加 `--insecure` 跳过 SSL 校验。
+  - 例：`mdhub to-md https://example.com/page.aspx --insecure -o out.md`。
+
+**告示/提示框（callouts）**：`docx`/`pdf`/`html` 均支持 Obsidian 风格
+`> [!NOTE] 标题` 与 Pandoc 风格 `::: warning 标题 ... :::`：
+- `html`：渲染为着色卡片（`.callout-*`，`assets/html/css/app.css`）。
+- `docx`/`pdf`：预处理为带加粗标签的引用块（跨引擎稳健，无需自定义样式）。
+
+**docx Mermaid 图 + 代码高亮**：`docx` 子命令支持
+`--mermaid on/off/auto`（渲染 ```mermaid 块为 SVG 并嵌入；`auto` 即有 node 时自动开启）和
+`--syntax-highlighting default/none/pygments/tango/...`（代码块语法高亮）。
+Mermaid 图嵌入 docx 需系统安装 `rsvg-convert`（pandoc 将 SVG 转为 docx 图片所需），缺失时会保留 mermaid 源码为代码块并提示安装：
+
+```bat
+:: 开启 Mermaid 图渲染 + pygments 代码高亮
+bin\mdhub.bat docx in.md --mermaid on --syntax-highlighting pygments
+
+:: 关闭 Mermaid（保留源码）
+bin\mdhub.bat docx in.md --mermaid off
+```
+
 ### 不使用 .bat，直接运行 Python
 
 Windows 下不想走 `bin\mdhub.bat`，直接用 Python 跑（三种方式任选）——
@@ -124,6 +161,23 @@ mdhub/
 - Python（.venv）与 Node（node/node_modules）依赖隔离。
 - 可选后端（markitdown/texlive/Marp）lazy import + `doctor` 探测，缺失不影响核心。
 - 资产放 `assets/`，各模块只读自己的子目录。
+
+---
+
+## 扩展路线图（对照 GitHub 参考项目）
+
+已落地（2026-11-26）：
+- 横切 `--json` / `--quiet` / 批量目录（所有子命令）—— 参考 picoloom / markdownFly
+- 告示 callouts（`docx` `pdf` `html`）—— 参考 picoloom / markdownFly / MD2DOC-Evolution
+- `to-md` 支持 `http(s)://` URL 输入 —— 参考 e2m / percollate
+- `doctor --json` 机器可读探测
+- **docx 内渲染 Mermaid 图 + 代码高亮**（`--mermaid on/off/auto`、`--syntax-highlighting`）—— 参考 `eric861129/MD2DOC-Evolution`
+
+待分步（按优先级）：
+1. **pdf 封面/目录/水印/签名/分页**（pandoc 参数 + Eisvogel/typst）—— 参考 `alnah/picoloom`
+2. **pptx 主题系统 + 多图引擎（mermaid/graphviz/plantuml/echarts）+ 网格布局 + 视频 + 批量 `--json`** —— 参考 `Kyvin-Guan/markdownFly`
+3. **MCP server 子命令**（把 mdhub 暴露为 AI 工具）—— 参考 `chrisryugj/kordoc`
+4. **`to-md` 更多输入类型（XLSX/CSV/JSON/XML/音频/OCR）** —— 参考 `e2m` / `anytomd-rs` / `kordoc`
 
 ---
 

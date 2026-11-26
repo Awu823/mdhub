@@ -53,9 +53,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    # Give modules the project root and config (they may need them).
+    # Give modules the project root (they may need it).
     args._project_root = str(_project_root())
-    args._project_root_path = _project_root()
     return args._fn(args)
 
 

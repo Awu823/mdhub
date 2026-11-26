@@ -21,22 +21,23 @@ THEMES = ("midnight", "parchment", "academic", "apple", "terminal", "slate", "fo
 
 
 def add_subparser(sp):
-    sp.add_argument("md", nargs="?", help="输入 .md 文件")
-    sp.add_argument("-o", "--output", help="输出 .html 路径（默认与输入同名 .html）")
+    sp.add_argument("md", nargs="?", help="输入 .md 文件或目录（目录则批量转换）")
+    sp.add_argument("-o", "--output", help="输出 .html 路径或输出目录（默认与输入同名 .html）")
     sp.add_argument("-t", "--theme", default="midnight", choices=THEMES, help="主题（默认 midnight）")
     sp.add_argument("--no-mermaid", action="store_true", help="跳过 Mermaid 预渲染")
     sp.add_argument("--basic", action="store_true", help="强制用纯标准库基础渲染（不依赖 Node）")
+    common.add_output_args(sp)
 
 
-def _node_render(md_path: str, out_path: str, theme: str, no_mermaid: bool, project_root: Path) -> int:
+def _node_render(md_path: str, out_path: str, theme: str, no_mermaid: bool, project_root: Path, quiet: bool = False) -> int:
     node = shutil.which("node")
     if not node:
         print("警告：未找到 node，回退到基础渲染", file=sys.stderr)
-        return _basic_render(md_path, out_path, theme)
+        return _basic_render(md_path, out_path, theme, quiet)
     render = project_root / "node" / "render.mjs"
     if not render.exists():
         print("警告：缺少 node/render.mjs，回退到基础渲染", file=sys.stderr)
-        return _basic_render(md_path, out_path, theme)
+        return _basic_render(md_path, out_path, theme, quiet)
     cmd = [node, str(render), md_path, out_path, "--theme", theme]
     if no_mermaid:
         cmd.append("--no-mermaid")
@@ -46,11 +47,11 @@ def _node_render(md_path: str, out_path: str, theme: str, no_mermaid: bool, proj
             r = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT, timeout=120)
         if r.returncode != 0:
             print(f"Node 渲染失败（详见 {log.name}），回退到基础渲染", file=sys.stderr)
-            return _basic_render(md_path, out_path, theme)
+            return _basic_render(md_path, out_path, theme, quiet)
         return 0
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         print(f"Node 渲染异常：{exc}，回退到基础渲染", file=sys.stderr)
-        return _basic_render(md_path, out_path, theme)
+        return _basic_render(md_path, out_path, theme, quiet)
     finally:
         if log.exists() and Path(out_path).exists():
             try:
@@ -59,7 +60,7 @@ def _node_render(md_path: str, out_path: str, theme: str, no_mermaid: bool, proj
                 pass
 
 
-def _basic_render(md_path: str, out_path: str, theme: str) -> int:
+def _basic_render(md_path: str, out_path: str, theme: str, quiet: bool = False) -> int:
     """Last-resort renderer: markdown -> plain HTML.
 
     Tries python-markdown if installed; otherwise falls back to a minimal
@@ -110,7 +111,8 @@ def _basic_render(md_path: str, out_path: str, theme: str) -> int:
 </html>""",
         encoding="utf-8",
     )
-    print(f"已生成（基础渲染）: {out}")
+    if not quiet:
+        print(f"已生成（基础渲染）: {out}")
     return 0
 
 
@@ -122,15 +124,27 @@ def run(args) -> int:
     if args.md is None:
         print("错误：未提供输入 .md 文件", file=sys.stderr)
         return 1
-    md_path = str(common.resolve_input(project_root, args.md))
-    if not Path(md_path).exists():
-        print(f"错误：找不到输入 {md_path}", file=sys.stderr)
-        return 1
-    if args.output is None:
-        out_path = str(Path(project_root) / (global_cfg.get("output_dir") or "output") /
-                        (Path(md_path).stem + ".html"))
-    else:
-        out_path = args.output
-    if args.basic:
-        return _basic_render(md_path, out_path, args.theme)
-    return _node_render(md_path, out_path, args.theme, args.no_mermaid, project_root)
+
+    reporter = common.Reporter(args.quiet, args.json)
+    inputs = common.expand_inputs(project_root, args.md, (".md",))
+    out_as_dir = common.is_dir_output(args.output)
+    out_dir = (Path(args.output) if out_as_dir else None) or Path(project_root) / (global_cfg.get("output_dir") or "output")
+    if out_as_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    elif len(inputs) > 1:
+        print("错误：批量转换（目录/多文件）时 -o 必须是输出目录", file=sys.stderr)
+        return 2
+    for md_path in inputs:
+        if not md_path.exists():
+            reporter.fail(md_path, "文件不存在")
+            continue
+        out_path = str(out_dir / (md_path.stem + ".html")) if out_as_dir or not args.output else args.output
+        try:
+            if args.basic:
+                _basic_render(str(md_path), out_path, args.theme, quiet=args.quiet or args.json)
+            else:
+                _node_render(str(md_path), out_path, args.theme, args.no_mermaid, project_root, quiet=args.quiet or args.json)
+            reporter.ok(md_path, out_path)
+        except Exception as exc:
+            reporter.fail(md_path, exc)
+    return reporter.finish()

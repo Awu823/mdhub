@@ -26,6 +26,7 @@ def add_subparser(sp):
     sp.add_argument("--to", required=True, help="逗号分隔的格式列表（docx,html,pdf,pptx）")
     sp.add_argument("-o", "--output", help="输出目录（默认 output/）")
     sp.add_argument("-t", "--theme", default="midnight", help="HTML 主题")
+    common.add_output_args(sp)
 
 
 def run(args) -> int:
@@ -64,7 +65,14 @@ def run(args) -> int:
             (ok if rc == 0 else fail).append(fmt)
         except SystemExit as e:
             fail.append(fmt)
-            print(f"[{fmt}] 失败：{e}", file=sys.stderr)
+            if not (args.quiet or args.json):
+                print(f"[{fmt}] 失败：{e}", file=sys.stderr)
 
-    print(f"\n完成：{ok} 失败：{fail or '无'}")
+    if args.json:
+        import json as _json
+        print(_json.dumps({"ok": not fail, "formats": wanted,
+                           "ok_formats": ok, "failed_formats": fail,
+                           "output_dir": str(out_dir)}, ensure_ascii=False))
+    elif not args.quiet:
+        print(f"\n完成：{ok} 失败：{fail or '无'}")
     return 0 if not fail else 1

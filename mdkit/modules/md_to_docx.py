@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import copy
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -20,6 +19,7 @@ import zipfile
 from pathlib import Path
 
 from mdkit import common
+from mdkit.docx_utils import pstyle_val, set_cell_text, wq
 
 try:
     import docx
@@ -30,7 +30,6 @@ try:
 except ImportError:  # pragma: no cover - checked lazily in run()
     _DEPS_OK = False
 
-W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 USABLE_WIDTH = 9639
 HEADING_NUM_ID = 5
 
@@ -82,6 +81,12 @@ def add_subparser(sp):
     cover.add_argument("--cover-type", help="Document Type 单元格 T,R,C")
     cover.add_argument("--cover-loc", help="Document Location 单元格 T,R,C")
     cover.add_argument("--cover-hist", help="History 单元格 T,R,C")
+    render = sp.add_argument_group("图表与代码渲染")
+    render.add_argument("--mermaid", choices=("auto", "on", "off"), default="auto",
+                        help="Mermaid 图：auto(有 node 时自动渲染为 SVG 嵌入) / on(强制) / off(保留代码块)")
+    render.add_argument("--syntax-highlighting", default="default",
+                        help="代码块语法高亮（pandoc --syntax-highlighting：default/none/idiomatic 或样式名，如 pygments/tango/espresso/zenburn/kate/monochrome/breezedark/haddock）")
+    common.add_output_args(sp)
 
 
 def _cell(triple):
@@ -90,10 +95,6 @@ def _cell(triple):
     if isinstance(triple, (list, tuple)):
         return tuple(int(x) for x in triple)
     return tuple(int(x) for x in str(triple).split(","))
-
-
-def parse_cell(text):
-    return tuple(int(x) for x in str(text).split(","))
 
 
 def _unescape(s):
@@ -154,16 +155,6 @@ def detect_cover_meta(lines):
         if m and not m.group(1).strip().lower().startswith('version'):
             history = _unescape(m.group(2))
     return doc_name, doc_assoc, doc_type, doc_loc, history
-
-
-def wq(t):
-    return '{%s}%s' % (W, t)
-
-
-def raw_pstyle(p):
-    ppr = p._p.find(qn('w:pPr'))
-    st = ppr.find(qn('w:pStyle')) if ppr is not None else None
-    return st.get(qn('w:val')) if st is not None else None
 
 
 def insert_child(parent, el, order):
@@ -242,34 +233,6 @@ def compute_col_widths(tbl, usable=USABLE_WIDTH, min_w=520, max_w=None):
                 m = max(m, est_width(cells[ci].text.strip()))
         weights.append(m + 12)
     return distribute(weights, usable, min_w, max_w)
-
-
-def find_pandoc():
-    pandoc = shutil.which("pandoc")
-    if pandoc is None:
-        cand = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Pandoc", "pandoc.exe")
-        if os.path.exists(cand):
-            pandoc = cand
-    if pandoc is None:
-        raise SystemExit("错误：pandoc not found on PATH（winget install pandoc）")
-    return pandoc
-
-
-def set_cell(cell, text):
-    tc = cell._tc
-    ps = tc.findall(qn('w:p'))
-    for p in ps[1:]:
-        tc.remove(p)
-    p0 = ps[0]
-    ppr = p0.find(qn('w:pPr'))
-    for child in list(p0):
-        if child is not ppr:
-            p0.remove(child)
-    r = p0.makeelement(qn('w:r'), {})
-    t = p0.makeelement(qn('w:t'), {})
-    t.text = text
-    r.append(t)
-    (ppr.addnext(r) if ppr is not None else p0.insert(0, r))
 
 
 def fix_table(tbl):
@@ -391,6 +354,57 @@ def fix_lists(doc, numfmt):
         sp.set(qn('w:line'), '240'); sp.set(qn('w:lineRule'), 'auto')
 
 
+def _render_mermaid_blocks(text: str, workdir: Path, project_root: Path, quiet: bool = False) -> str:
+    """Replace ```mermaid ... ``` blocks with image references.
+
+    Each Mermaid block is rendered to SVG via node/mermaid.mjs. When the system
+    has ``rsvg-convert`` (needed by pandoc to embed SVG into docx), the SVG is
+    converted to PNG and referenced as an image; otherwise the source block is
+    left as-is so conversion never hard-fails, with a hint printed to stderr.
+    """
+    import re, uuid
+    pattern = re.compile(r'```mermaid\n([\s\S]*?)\n```', re.MULTILINE)
+
+    def repl(m):
+        src = m.group(1)
+        mmd_path = workdir / f"_mermaid_{uuid.uuid4().hex[:8]}.mmd"
+        svg_path = mmd_path.with_suffix(".svg")
+        mmd_path.write_text(src, encoding="utf-8")
+        node = common.which("node")
+        if not node or not (project_root / "node" / "mermaid.mjs").exists():
+            if not quiet:
+                print("警告：不可用 Mermaid 渲染环境，保留代码块", file=sys.stderr)
+            return m.group(0)
+        try:
+            r = common.run_cmd([
+                node, str(project_root / "node" / "mermaid.mjs"),
+                str(mmd_path), str(svg_path), "--theme", "base", "--width", "6in",
+            ], timeout=120)
+            if r.returncode != 0 or not svg_path.exists():
+                if not quiet:
+                    print("警告：Mermaid 渲染失败，保留代码块", file=sys.stderr)
+                return m.group(0)
+            # pandoc needs rsvg-convert to embed SVG into docx; fall back to PNG.
+            rsvg = common.which("rsvg-convert")
+            if rsvg:
+                png_path = svg_path.with_suffix(".png")
+                r = common.run_cmd([rsvg, str(svg_path), "-o", str(png_path)], timeout=60)
+                if r.returncode == 0 and png_path.exists():
+                    return f"![mermaid]({png_path.name}){{width=6in}}"
+                if not quiet:
+                    print("警告：rsvg-convert 转 PNG 失败，保留代码块", file=sys.stderr)
+            else:
+                if not quiet:
+                    print("提示：未找到 rsvg-convert，Mermaid 源码将以代码块形式保留（winget 安装 librsvg 可嵌入图片）", file=sys.stderr)
+            return m.group(0)
+        except Exception as exc:
+            if not quiet:
+                print(f"警告：Mermaid 渲染异常：{exc}，保留代码块", file=sys.stderr)
+            return m.group(0)
+
+    return pattern.sub(repl, text)
+
+
 def fix_body_indent(doc, left=0, first_line=0, line=240, before=0, after=120):
     paras = doc.paragraphs
     start = None
@@ -401,7 +415,7 @@ def fix_body_indent(doc, left=0, first_line=0, line=240, before=0, after=120):
     if start is None:
         return
     for p in paras[start:]:
-        if raw_pstyle(p) in ('BlockText',):
+        if pstyle_val(p._p) == 'BlockText':
             continue
         pPr = p._p.find(qn('w:pPr'))
         num = pPr.find(qn('w:numPr')) if pPr is not None else None
@@ -440,7 +454,7 @@ def fix_section_labels(doc, before=180, after=60):
     if start is None:
         return
     for p in paras[start:]:
-        if raw_pstyle(p) in ('BlockText',):
+        if pstyle_val(p._p) == 'BlockText':
             continue
         pPr = p._p.find(qn('w:pPr'))
         num = pPr.find(qn('w:numPr')) if pPr is not None else None
@@ -539,7 +553,7 @@ def _set_cover(doc, triple, text):
         return
     ti, ri, ci = triple
     try:
-        set_cell(doc.tables[ti].rows[ri].cells[ci], text)
+        set_cell_text(doc.tables[ti].rows[ri].cells[ci], text)
     except IndexError:
         print('warning: cover cell %s out of range' % (triple,), file=sys.stderr)
 
@@ -603,15 +617,15 @@ def build_config(args, project_root, global_cfg):
     if args.history is not None:
         cfg['history'] = args.history
     if args.cover_name:
-        cfg['cover_name'] = parse_cell(args.cover_name)
+        cfg['cover_name'] = _cell(args.cover_name)
     if args.cover_assoc:
-        cfg['cover_assoc'] = parse_cell(args.cover_assoc)
+        cfg['cover_assoc'] = _cell(args.cover_assoc)
     if args.cover_type:
-        cfg['cover_type'] = parse_cell(args.cover_type)
+        cfg['cover_type'] = _cell(args.cover_type)
     if args.cover_loc:
-        cfg['cover_loc'] = parse_cell(args.cover_loc)
+        cfg['cover_loc'] = _cell(args.cover_loc)
     if args.cover_hist:
-        cfg['cover_hist'] = parse_cell(args.cover_hist)
+        cfg['cover_hist'] = _cell(args.cover_hist)
 
     if not args.md and 'md' not in cfg:
         raise SystemExit('错误：未提供输入 .md 文件（位置参数或 --config）')
@@ -680,15 +694,27 @@ def run(args) -> int:
             if not prev.startswith(('#', '|', '>')) and not re.match(r'^\d+[.)]\s', prev):
                 out_lines.append('\n')
         out_lines.append(ln)
-    body_md.write_text(''.join(out_lines), encoding='utf-8')
-    print(f'body start line: {body_start} | body md lines: {len(out_lines)}')
+    body_text = common.transform_admonitions(''.join(out_lines))
+    # Mermaid 图：预渲染为 SVG 并改写为 pandoc 图片语法，嵌入 docx。
+    quiet = args.quiet or args.json
+    if args.mermaid != "off":
+        body_text = _render_mermaid_blocks(body_text, workdir, project_root, quiet=quiet)
+    body_md.write_text(body_text, encoding='utf-8')
+    if not quiet:
+        print(f'body start line: {body_start} | body md lines: {len(out_lines)}')
 
     # 2. pandoc
-    pandoc = find_pandoc()
-    subprocess.run([pandoc, str(body_md), '-f', 'markdown', '-t', 'docx',
-                    '--reference-doc=' + cfg['template'], '-o', str(content)],
-                   check=True)
-    print(f'pandoc done -> {content}')
+    pandoc = common.which_pandoc()
+    if not pandoc:
+        print("错误：未找到 pandoc（winget install pandoc）", file=sys.stderr)
+        return 1
+    pandoc_cmd = [pandoc, str(body_md), '-f', 'markdown', '-t', 'docx',
+                  '--reference-doc=' + cfg['template'], '-o', str(content),
+                  '--syntax-highlighting=' + args.syntax_highlighting]
+    # 相对图片路径（Mermaid SVG）相对于 workdir 解析。
+    subprocess.run(pandoc_cmd, check=True, cwd=str(workdir))
+    if not quiet:
+        print(f'pandoc done -> {content}')
 
     # 3. merge
     out = cfg['output']
@@ -705,12 +731,9 @@ def run(args) -> int:
     sectPr = body_el.find(qn('w:sectPr'))
     start = None
     for i, ch in enumerate(list(body_el)):
-        if ch.tag == qn('w:p'):
-            ppr = ch.find(qn('w:pPr'))
-            st = ppr.find(qn('w:pStyle')) if ppr is not None else None
-            if st is not None and st.get(qn('w:val')) == 'Heading1':
-                start = i
-                break
+        if ch.tag == qn('w:p') and pstyle_val(ch) == 'Heading1':
+            start = i
+            break
     assert start is not None, 'first Heading1 not found in template'
     for ch in list(body_el)[start:]:
         if ch is not sectPr:
@@ -731,11 +754,23 @@ def run(args) -> int:
     add_heading_numbering(d)
     d.save(out)
     inject_numbering(out)
-    print('saved:', out)
+    if not quiet:
+        print('saved:', out)
 
     if not args.keep_temp:
         for f in (body_md, content):
             if f.exists():
                 f.unlink()
-        print('cleaned temp files')
+        # 也清理 Mermaid 临时产物（SVG 已被 pandoc 嵌入 docx）。
+        for f in workdir.glob("_mermaid_*"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        if not quiet:
+            print('cleaned temp files')
+    if args.json:
+        import json as _json
+        print(_json.dumps({"ok": True, "results": [{"file": str(md_path), "ok": True,
+                                                    "output": out}]}, ensure_ascii=False))
     return 0

@@ -32,6 +32,7 @@ def add_subparser(sp):
     sp.add_argument("--to", required=True,
                     help="目标格式链，逗号分隔（如 md,docx 或 html,pdf）")
     sp.add_argument("--keep", action="store_true", help="保留中间产物")
+    common.add_output_args(sp)
 
 
 def run(args) -> int:
@@ -74,16 +75,24 @@ def run(args) -> int:
         try:
             rc = mod.run(sub)
         except SystemExit as e:
-            print(f"[step {i+1} -> {target}] 失败：{e}", file=sys.stderr)
+            if not (args.quiet or args.json):
+                print(f"[step {i+1} -> {target}] 失败：{e}", file=sys.stderr)
             return 1
         if rc != 0:
-            print(f"[step {i+1} -> {target}] 失败（rc={rc}）", file=sys.stderr)
+            if not (args.quiet or args.json):
+                print(f"[step {i+1} -> {target}] 失败（rc={rc}）", file=sys.stderr)
             return 1
-        print(f"step {i+1}: {prev.name} -> {target}  完成")
+        if not (args.quiet or args.json):
+            print(f"step {i+1}: {prev.name} -> {target}  完成")
         prev = out_path
 
     if not args.keep:
         for f in pipe_dir.iterdir():
             f.unlink()
-    print(f"\n最终产物: {prev}")
+    if args.json:
+        import json as _json
+        print(_json.dumps({"ok": True, "chain": chain,
+                           "output": str(prev)}, ensure_ascii=False))
+    elif not args.quiet:
+        print(f"\n最终产物: {prev}")
     return 0

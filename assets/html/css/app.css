@@ -450,3 +450,18 @@ button:focus-visible, select:focus-visible {
 .hljs-attribute { color: var(--hl-attr); }
 .hljs-deletion { color: var(--hl-deletion); }
 .hljs-addition { color: var(--hl-addition); }
+
+/* ============ CALLOUTS / ADMONITIONS ============ */
+.callout {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--callout, var(--accent));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--callout, var(--accent)) 8%, var(--bg));
+}
+.callout-title { font-weight: 700; margin-bottom: 6px; color: var(--callout, var(--accent)); }
+.callout-body > :last-child { margin-bottom: 0; }
+.callout-note, .callout-info     { --callout: var(--accent); }
+.callout-tip, .callout-success   { --callout: #2e7d32; }
+.callout-warning, .callout-caution, .callout-important { --callout: #e6a700; }
+.callout-danger                 { --callout: #c62828; }

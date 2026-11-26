@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import re
 import shutil
+import sys
 import zipfile
 from pathlib import Path
+
+from mdkit.docx_utils import is_heading, set_cell_text
 
 try:
     import docx
@@ -18,8 +21,6 @@ try:
     _DEPS_OK = True
 except ImportError:  # pragma: no cover - checked lazily in run()
     _DEPS_OK = False
-
-W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
 PLACEHOLDER = "[Content to be completed]"
 COVER_NAME = "[Document Name]"
@@ -31,28 +32,6 @@ HIST_CHANGES = "[Version notes]"
 def add_subparser(sp):
     sp.add_argument("src", help="源模板 .docx（含示例内容）")
     sp.add_argument("-o", "--output", help="输出脱敏模板（默认 src 同目录 _sanitized.docx）")
-
-
-def wq(t):
-    return '{%s}%s' % (W, t)
-
-
-def set_cell_text(cell, text):
-    tc = cell._tc
-    ps = tc.findall(qn('w:p'))
-    for p in ps[1:]:
-        tc.remove(p)
-    p0 = ps[0]
-    ppr = p0.find(qn('w:pPr'))
-    for child in list(p0):
-        if child is not ppr:
-            p0.remove(child)
-    r = p0.makeelement(qn('w:r'), {})
-    t = p0.makeelement(qn('w:t'), {})
-    t.text = text
-    t.set(qn('xml:space'), 'preserve')
-    r.append(t)
-    (ppr.addnext(r) if ppr is not None else p0.insert(0, r))
 
 
 def make_placeholder_para():
@@ -74,14 +53,6 @@ def make_placeholder_para():
     r.append(t)
     p.append(r)
     return p
-
-
-def is_heading(ch):
-    ppr = ch.find(qn('w:pPr'))
-    st = ppr.find(qn('w:pStyle')) if ppr is not None else None
-    if st is None:
-        return False
-    return st.get(qn('w:val')) in ('Heading1', 'Heading2', 'Heading3')
 
 
 def desensitize_cover(doc):
@@ -174,13 +145,13 @@ def clean_metadata(path):
 
 def run(args) -> int:
     if not _DEPS_OK:
-        print("错误：缺少 python-docx。请先 pip install -r requirements.txt", file=__import__('sys').stderr)
+        print("错误：缺少 python-docx。请先 pip install -r requirements.txt", file=sys.stderr)
         return 1
     src = Path(args.src)
     if not src.exists():
         src = Path(args._project_root) / src
     if not src.exists():
-        print(f"错误：找不到源模板 {args.src}", file=__import__('sys').stderr)
+        print(f"错误：找不到源模板 {args.src}", file=sys.stderr)
         return 1
     out = Path(args.output) if args.output else src.with_name(src.stem + '_sanitized.docx')
     out.parent.mkdir(parents=True, exist_ok=True)
